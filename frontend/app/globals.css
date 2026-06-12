@@ -1,0 +1,104 @@
+/* stylelint-disable-next-line at-rule-no-unknown */
+@tailwind base;
+/* stylelint-disable-next-line at-rule-no-unknown */
+@tailwind components;
+/* stylelint-disable-next-line at-rule-no-unknown */
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+}
+
+body {
+  overflow-x: hidden;
+  background: #fdfdfb;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.vandal-surface {
+  position: relative;
+  background-color: #fdfdfb;
+  background-image:
+    radial-gradient(circle at 12px 12px, rgba(26, 26, 26, 0.07) 2px, transparent 2px),
+    linear-gradient(to right, rgba(26, 26, 26, 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(26, 26, 26, 0.1) 1px, transparent 1px);
+  background-size: 48px 48px, 24px 24px, 24px 24px;
+}
+
+.vandal-surface::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      transparent 0,
+      transparent 18px,
+      rgba(228, 168, 0, 0.09) 18px,
+      rgba(228, 168, 0, 0.09) 21px
+    );
+  mix-blend-mode: multiply;
+}
+
+.spray-title {
+  text-shadow: 3px 3px 0 #1a1a1a, 5px 5px 0 #e4a800;
+}
+
+.marker-slash {
+  position: relative;
+  display: inline-block;
+}
+
+.marker-slash::after {
+  content: "";
+  position: absolute;
+  left: -0.08em;
+  right: -0.08em;
+  bottom: 0.08em;
+  height: 0.16em;
+  z-index: -1;
+  background: #e4a800;
+  transform: rotate(-2deg);
+  transform-origin: left center;
+}
+
+.stamp-label {
+  transform-origin: center;
+}
+
+::selection {
+  background: #e4a800;
+  color: #1a1a1a;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #1a1a1a #fdfdfb;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #fdfdfb;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #1a1a1a;
+  border: 2px solid #fdfdfb;
+}

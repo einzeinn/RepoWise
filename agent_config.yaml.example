@@ -1,0 +1,19 @@
+# Band Agent Configuration
+# Copy this to agent_config.yaml and fill in your Band agent credentials.
+# Get your agent IDs and API keys from the Band platform dashboard.
+
+explorer:
+  agent_id: "your-explorer-agent-id"
+  api_key: "your-explorer-api-key"
+documenter:
+  agent_id: "your-documenter-agent-id"
+  api_key: "your-documenter-api-key"
+mentor:
+  agent_id: "your-mentor-agent-id"
+  api_key: "your-mentor-api-key"
+task_suggester:
+  agent_id: "your-task-suggester-agent-id"
+  api_key: "your-task-suggester-api-key"
+reviewer:
+  agent_id: "your-reviewer-agent-id"
+  api_key: "your-reviewer-api-key"
