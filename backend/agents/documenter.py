@@ -41,10 +41,11 @@ class DocumenterAgent(BaseAgent):
             pass
         return ""
 
-    async def _analyze_all_files_batch(self, files_content: Dict[str, str]) -> Dict[str, str]:
+    async def _analyze_all_files_batch(self, files_content: Dict[str, str], reviewer_feedback: str = "") -> Dict[str, str]:
         """
         BATCH: Send all files to LLM in 1 call.
         Much more efficient vs 1 call per file.
+        If reviewer_feedback is provided, focus on addressing the reviewer's concerns.
         Returns dict {file_path: summary}.
         """
         if not files_content:
@@ -70,6 +71,24 @@ class DocumenterAgent(BaseAgent):
             f"### FILE: <file_path>\n<summary here>\n\n"
             f"Files to analyze:{files_block}"
         )
+
+        # If reviewer sent feedback, inject as SUPPLEMENTARY context — not a replacement
+        if reviewer_feedback:
+            system_prompt += (
+                " IMPORTANT: This is a RE-ANALYSIS pass. Your PRIMARY task is still to "
+                "analyze each file based on its ACTUAL CODE content. Maintain accurate "
+                "technical summaries of what each file does. The reviewer feedback below "
+                "is SUPPLEMENTARY — use it to ADD observations about error handling, "
+                "edge cases, or code quality issues you may have missed. "
+                "Do NOT let the feedback override or distort your core file analysis."
+            )
+            user_prompt += (
+                f"\n\n=== REVIEWER FEEDBACK (supplementary — enhance your analysis with these points) ===\n"
+                f"{reviewer_feedback}\n"
+                f"=== END FEEDBACK ===\n"
+                f"REMEMBER: Your summaries must reflect the ACTUAL code in each file above. "
+                f"The feedback is additional context only — do not invent issues that are not in the code."
+            )
 
         # 1 LLM call for all files
         raw_response = await self._call_llm(
@@ -163,9 +182,10 @@ class DocumenterAgent(BaseAgent):
                 message="Failed to fetch files — using fallback documentation",
             )
 
-        # 2. Analyze ALL files in 1 LLM call
-        logging.info(f"[{self.name}] Batch analyzing {len(fetched)} files in 1 LLM call...")
-        architecture_docs = await self._analyze_all_files_batch(fetched)
+        # 2. Analyze ALL files in 1 LLM call (with optional reviewer feedback)
+        feedback = context.get("reviewer_feedback", "")
+        logging.info(f"[{self.name}] Batch analyzing {len(fetched)} files in 1 LLM call{' (with reviewer feedback)' if feedback else ''}...")
+        architecture_docs = await self._analyze_all_files_batch(fetched, reviewer_feedback=feedback)
 
         if not architecture_docs:
             architecture_docs = get_fallback_documentation(repo, files)

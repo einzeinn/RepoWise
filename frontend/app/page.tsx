@@ -552,6 +552,11 @@ export default function Home() {
       <style>{`
         @keyframes canShake { 0%,100%{transform:rotate(-4deg) translateX(-2px)} 50%{transform:rotate(4deg) translateX(2px)} }
         @keyframes mistRing  { 0%{transform:scale(0.6);opacity:0.8} 100%{transform:scale(2.4);opacity:0} }
+        @keyframes genSpin   { 0%{transform:rotate(0deg)} 50%{transform:rotate(180deg)} 100%{transform:rotate(360deg)} }
+        @keyframes genBlink  { to { opacity: 0 } }
+        @keyframes genPulse  { 0%,100%{opacity:0.3;transform:scale(0.8)} 50%{opacity:0.8;transform:scale(1.2)} }
+        @keyframes genDotPulse { 0%,100%{opacity:0.2} 50%{opacity:1} }
+        @keyframes scanSweep { 0%{transform:translateX(-8px)} 50%{transform:translateX(100%)} 100%{transform:translateX(-8px)} }
       `}</style>
 
       {/* ── Spray canvas (fixed, full screen) ── */}
@@ -718,7 +723,7 @@ export default function Home() {
                 </div>
                 <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
                   {!result && !isProcessing && <EmptyState label="STANDBY" title="Awaiting target" body="No repo wall yet."/>}
-                  {isProcessing && archEntries.length===0 && <ProcessingWall crewStatus={crewStatus}/>}
+                  {isProcessing && archEntries.length===0 && <ProcessingWall crewStatus={crewStatus} stepLabel={statusText}/>}
                   {archEntries.map(([path,summary],i)=>(
                     <DocCard key={path} index={i} path={path} summary={toText(summary)}/>
                   ))}
@@ -826,10 +831,55 @@ function EmptyState({label,title,body}:{label:string;title:string;body:string}){
   );
 }
 
-function ProcessingWall({crewStatus}:{crewStatus:CrewStatuses}){
+function GeneratingLoader({stepLabel}:{stepLabel?:string}){
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      {crewRoster.map(c=>(
+    <div className="relative overflow-hidden border-4 border-[#1a1a1a] bg-[#1a1a1a] p-5 shadow-[6px_6px_0_#E4A800]">
+      {/* Animated scan line sweeping across */}
+      <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+        <div className="h-full w-1 bg-[#E4A800] opacity-60" style={{animation:'scanSweep 2.4s ease-in-out infinite'}}/>
+      </div>
+      {/* Corner brackets */}
+      <span className="absolute left-1.5 top-1.5 h-3 w-3 border-l-2 border-t-2 border-[#E4A800]" aria-hidden="true"/>
+      <span className="absolute right-1.5 top-1.5 h-3 w-3 border-r-2 border-t-2 border-[#E4A800]" aria-hidden="true"/>
+      <span className="absolute bottom-1.5 left-1.5 h-3 w-3 border-b-2 border-l-2 border-[#E4A800]" aria-hidden="true"/>
+      <span className="absolute bottom-1.5 right-1.5 h-3 w-3 border-b-2 border-r-2 border-[#E4A800]" aria-hidden="true"/>
+
+      <div className="relative flex items-center gap-4">
+        {/* Spinner — larger, with glow */}
+        <div className="relative flex-shrink-0">
+          <svg width="52" height="52" viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg" aria-label="Scanning">
+            <rect x="6" y="6" width="44" height="44" rx="4" fill="#2a2a2a"/>
+            <rect x="4" y="4" width="36" height="36" rx="3" fill="#f0a830" stroke="#E4A800" strokeWidth="2" style={{animation:'genSpin 1.6s linear infinite',transformBox:'fill-box',transformOrigin:'center'}}/>
+            <circle cx="22" cy="22" r="5" fill="#1a1a1a" opacity="0.6" style={{animation:'genPulse 1.2s ease-in-out infinite'}}/>
+          </svg>
+        </div>
+
+        {/* Text block */}
+        <div className="min-w-0 flex-1">
+          <p className={`text-xl font-black uppercase tracking-widest text-[#E4A800] ${russo.className}`}>
+            SCANNING<span style={{animation:'genBlink 1s steps(2,start) infinite'}}>_</span>
+          </p>
+          {stepLabel && (
+            <p className="mt-1 truncate text-xs font-bold uppercase text-white/50">{stepLabel}</p>
+          )}
+          {/* Animated progress dots */}
+          <div className="mt-2 flex gap-1.5">
+            {[0,1,2,3,4].map(i => (
+              <span key={i} className="h-1.5 w-6 bg-[#E4A800]" style={{animation:`genDotPulse 1.4s ease-in-out ${i*0.2}s infinite`,opacity:0.25}}/>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProcessingWall({crewStatus,stepLabel}:{crewStatus:CrewStatuses;stepLabel?:string}){
+  return (
+    <div className="space-y-4">
+      <GeneratingLoader stepLabel={stepLabel}/>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {crewRoster.map(c=>(
         <article key={c.key} className="relative overflow-hidden border-4 border-[#1a1a1a] bg-white/80 p-4 shadow-[5px_5px_0_#1a1a1a]">
           <span className="absolute -right-3 -top-2 rotate-6 border-2 border-[#1a1a1a] bg-[#E4A800] px-2 py-1 text-[10px] font-black">{c.stamp}</span>
           <div className="flex items-center gap-3">
@@ -842,6 +892,7 @@ function ProcessingWall({crewStatus}:{crewStatus:CrewStatuses}){
           <p className="mt-4 text-xs font-bold uppercase leading-relaxed text-[#1a1a1a]/65">{c.role}</p>
         </article>
       ))}
+      </div>
     </div>
   );
 }

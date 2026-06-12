@@ -20,6 +20,12 @@ A powerful multi-agent system that automatically analyzes GitHub repositories, g
 - ⚡ **Fallback Mode** — Works without API keys using fallback documentation
 - 📊 **Handoff Logging** — Full historical tracking of agent-to-agent handoffs
 
+### 🤝 Multi-Agent Collaboration (Band Integration)
+
+- **Rich Context Exchange** — Agents publish structured JSON output (file trees, summaries, review scores) directly to Band chat rooms, making the shared environment the actual collaboration layer — not just a notification channel
+- **Reviewer Feedback Loop** — If code quality score < 50, the Reviewer rejects and sends specific issues + recommendations back to the Documenter for re-analysis (max 2 retries), demonstrating true two-way collaboration
+- **Dynamic Prompt Injection** — Reviewer feedback is parsed from actual `issues` and `recommendations` arrays and injected as supplementary context, with hallucination guards to keep Documenter focused on actual code
+
 ---
 
 ## 🚀 Quick Start
@@ -67,10 +73,11 @@ Frontend (Next.js 14)  ←→  WebSocket + REST
 │  SessionManager │ HandoffLog │ MentorQ&A │ BandCoord  │
 ├───────────────────────────────────────────────────────┤
 │ ┌──────────┐  ┌──────────┐  ┌──────────┐              │
-│ │ Explorer │→ │Documenter│→ │ Reviewer │              │
-│ │ (Scan)   │  │(Analyze) │  │ (Score)  │              │
-│ └──────────┘  └──────────┘  └────┬─────┘              │
-│                                   ↓                    │
+│ │ Explorer │→ │Documenter│→ │ Reviewer │ ←─┐          │
+│ │ (Scan)   │  │(Analyze) │  │ (Score)  │   │ reject   │
+│ └──────────┘  └────┬─────┘  └────┬─────┘   │ if <50   │
+│                    ↑               ↓        │          │
+│                    └───────────────────────────┘          │
 │                             ┌──────────┐  ┌──────────┐│
 │                             │ Mentor   │→ │TaskSuggest││
 │                             │ (Guide)  │  │ (Tasks)   ││
@@ -79,6 +86,9 @@ Frontend (Next.js 14)  ←→  WebSocket + REST
 │  GitHub API  │  Featherless AI (Qwen2.5-Coder-32B)    │
 │              │  Qwen DashScope  │  Groq (fallback)     │
 └───────────────────────────────────────────────────────┘
+
+Band Chat Room: Agents exchange structured JSON data
+(file trees, docs, reviews, scores) — not just status logs
 ```
 
 ---
@@ -300,11 +310,13 @@ Each agent is a specialized worker in the analysis pipeline:
 | Agent | Responsibility | Input | Output |
 |-------|---|---|---|
 | **Explorer** | Scan repository structure | `repo_url` | `file_tree`, architecture insights |
-| **Documenter** | Analyze source code | `file_tree` | `architecture_docs` with summaries |
+| **Documenter** | Analyze source code | `file_tree`, `reviewer_feedback`* | `architecture_docs` with summaries |
 | **Reviewer** | Inspect code quality | `architecture_docs` | `review` (strengths/issues/recs), `quality_score` |
 | **Mentor** | Create learning guide | `architecture_docs` | `onboarding_guide` for new devs |
 | **Task Suggester** | Recommend tasks | `architecture_docs`, `review` | `suggested_tasks` for contributors |
 | **Mentor Q&A** | Answer questions | `architecture_docs`, `chat_history` | contextual answers |
+
+*\*Documenter receives reviewer feedback on retry when quality score < 50/100*
 
 ---
 

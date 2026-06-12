@@ -463,11 +463,56 @@ async def _run_local_mode(websocket, session_id: str, repo_url: str, log_entries
         "timestamp": datetime.now().isoformat()
     })
 
-    # 4. Reviewer
-    ctx, resp = await _step(reviewer, "Reviewer", ctx,
-                            "Reviewer: Analyzing code quality...")
-    if ctx is None:
-        return
+    # 4. Reviewer (with feedback loop)
+    MAX_REVIEW_RETRIES = 2
+    review_retry = 0
+    while True:
+        ctx, resp = await _step(reviewer, "Reviewer", ctx,
+                                "Reviewer: Analyzing code quality..." if review_retry == 0
+                                else f"Reviewer: Re-evaluating (attempt {review_retry + 1})...")
+        if ctx is None:
+            return
+
+        score = ctx.get("quality_score", 100)
+
+        # If score is too low and we haven't exceeded retries, request re-analysis
+        if score < 50 and review_retry < MAX_REVIEW_RETRIES:
+            review = ctx.get("review", {})
+            issues = review.get("issues", [])
+            recs = review.get("recommendations", [])
+
+            # Build fully dynamic feedback from Reviewer's actual output
+            feedback_parts = [f"Code quality score: {score}/100 ({ctx.get('quality_score_label', 'poor')})."]
+            if issues:
+                feedback_parts.append("Issues found:\n" + "\n".join(f"- {issue}" for issue in issues[:5]))
+            if recs:
+                feedback_parts.append("Required improvements:\n" + "\n".join(f"- {rec}" for rec in recs[:5]))
+            feedback_parts.append("Re-analyze the codebase and address these exact issues in your documentation.")
+            review_feedback = "\n\n".join(feedback_parts)
+
+            await websocket.send_json({
+                "status": "processing", "agent": "Reviewer",
+                "step": f"Reviewer: Score {score}/100 — requesting deeper analysis...",
+                "timestamp": datetime.now().isoformat()
+            })
+
+            # Re-run Documenter with reviewer feedback
+            retry_ctx = dict(ctx)
+            retry_ctx["reviewer_feedback"] = review_feedback
+            ctx, resp = await _step(documenter, "Documenter", retry_ctx,
+                                    f"Documenter: Re-analyzing based on review feedback...")
+            if ctx is None:
+                return
+
+            await websocket.send_json({
+                "status": "processing", "agent": "Band",
+                "step": "Handoff: Updated documentation sent back to Reviewer...",
+                "timestamp": datetime.now().isoformat()
+            })
+            review_retry += 1
+            continue
+        break
+
     await websocket.send_json({
         "status": "processing", "agent": "Band",
         "step": "Handoff: Passing review to Task Suggester...",

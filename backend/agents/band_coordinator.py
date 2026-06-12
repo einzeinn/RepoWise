@@ -74,6 +74,8 @@ class RepowiseNativeAdapter(SimpleAdapter):
         self.next_agent_id = next_agent_id
         self.shared_state = shared_state
         self.progress_queues = progress_queues
+        # Track reviewer rejection retries per room
+        self.review_retry_counts: Dict[str, int] = {}
 
     async def _push_progress(self, room_id: str, event: dict):
         """Push a progress event to the frontend queue for this room."""
@@ -149,25 +151,15 @@ class RepowiseNativeAdapter(SimpleAdapter):
             if status == "success":
                 current_state.update(getattr(result, "data", {}))
 
-            # Build response message
+            # ── Build rich response message with structured output ──
             response_text = f"✅ **{self.agent_name}** finished processing.\n"
 
-            if agent_key == "explorer":
-                owner = current_state.get("repository_owner", "")
-                name = current_state.get("repository_name", "")
-                total = current_state.get("total_files", 0)
-                if owner and name:
-                    response_text += f"📦 Repository: `{owner}/{name}` ({total} files mapped)\n"
-
-            elif agent_key == "reviewer":
-                score = current_state.get("quality_score")
-                label = current_state.get("quality_score_label", "")
-                if score is not None:
-                    response_text += f"🔍 Code quality score: **{score}/100** ({label})\n"
+            # Include structured data payload in the message
+            response_text += self._build_rich_message(agent_key, current_state)
 
             message_info = getattr(result, "message", "")
             if message_info:
-                response_text += f"📝 {message_info}\n"
+                response_text += f"\n📝 {message_info}\n"
 
             # Push progress to frontend queue
             await self._push_progress(room_id, {
@@ -178,19 +170,60 @@ class RepowiseNativeAdapter(SimpleAdapter):
                 "data_summary": self._build_data_summary(agent_key, current_state),
             })
 
-            # Routing: mention next agent or notify original sender
+            # ── Routing logic ──
             mentions = []
-            mention_items = []
 
-            if status == "success" and self.next_agent_handle and self.next_agent_id:
-                mentions.append(self.next_agent_handle)
-                mention_items.append(
-                    ChatMessageRequestMentionsItem(
-                        id=self.next_agent_id,
-                        handle=self.next_agent_handle,
-                        name=self.next_agent_handle.lstrip("@"),
+            # Special: Reviewer rejection loop (score < 50 → re-ask Documenter)
+            MAX_REVIEW_RETRIES = 2
+            retry_key = f"{room_id}_review_retries"
+            is_reviewer_rejection = (
+                agent_key == "reviewer"
+                and status == "success"
+                and (current_state.get("quality_score", 100) < 50)
+                and self.review_retry_counts.get(retry_key, 0) < MAX_REVIEW_RETRIES
+            )
+
+            if is_reviewer_rejection:
+                # Reject: route back to Documenter instead of next in chain
+                self.review_retry_counts[retry_key] = self.review_retry_counts.get(retry_key, 0) + 1
+                retry_num = self.review_retry_counts[retry_key]
+
+                # Get Documenter info from chain
+                doc_info = next((a for a in AGENT_CHAIN if a["key"] == "documenter"), None)
+                if doc_info:
+                    review = current_state.get("review", {})
+                    issues = review.get("issues", [])
+                    recs = review.get("recommendations", [])
+                    score = current_state.get("quality_score", 0)
+
+                    # Build fully dynamic feedback from Reviewer's actual output
+                    feedback_parts = [f"Code quality score: {score}/100."]
+                    if issues:
+                        feedback_parts.append("Issues found:\n" + "\n".join(f"- {issue}" for issue in issues[:5]))
+                    if recs:
+                        feedback_parts.append("Required improvements:\n" + "\n".join(f"- {rec}" for rec in recs[:5]))
+                    feedback_parts.append("Re-analyze the codebase and address these exact issues.")
+                    feedback = "\n\n".join(feedback_parts)
+
+                    current_state["reviewer_feedback"] = feedback
+
+                    response_text += (
+                        f"\n🚨 **Score {score}/100 — REJECTED** (attempt {retry_num}/{MAX_REVIEW_RETRIES}). "
+                        f"Sending back to {doc_info['handle']} for deeper analysis."
                     )
-                )
+                    mentions.append(doc_info["handle"])
+                    await self._push_progress(room_id, {
+                        "type": "reviewer_rejection",
+                        "agent": self.agent_name,
+                        "score": score,
+                        "retry": retry_num,
+                        "max_retries": MAX_REVIEW_RETRIES,
+                        "message": f"Reviewer rejected (score {score}/100), re-analysis #{retry_num}",
+                    })
+
+            elif status == "success" and self.next_agent_handle and self.next_agent_id:
+                # Normal handoff to next agent in chain
+                mentions.append(self.next_agent_handle)
                 response_text += f"\nHanding off to {self.next_agent_handle}."
                 await self._push_progress(room_id, {
                     "type": "handoff",
@@ -199,6 +232,7 @@ class RepowiseNativeAdapter(SimpleAdapter):
                     "message": f"Handoff: {self.agent_name} → {self.next_agent_handle}",
                 })
             else:
+                # Pipeline complete — notify original sender
                 original_human = current_state.get("original_sender", msg.sender_name)
                 mentions.append(original_human)
                 await self._push_progress(room_id, {
@@ -229,6 +263,107 @@ class RepowiseNativeAdapter(SimpleAdapter):
                 "agent": self.agent_name,
                 "message": error_msg,
             })
+
+    # Max character budget for the JSON block in a Band message
+    _MAX_JSON_CHARS = 3000
+    _MAX_ARRAY_ITEMS = 5
+
+    @staticmethod
+    def _safe_str(value: Any, max_len: int = 200) -> str:
+        """Truncate any string to a safe length for Band message payloads."""
+        s = str(value) if value is not None else ""
+        return s[:max_len] + "..." if len(s) > max_len else s
+
+    @staticmethod
+    def _safe_list(items: list, max_items: int = 5, max_str_len: int = 150) -> list:
+        """Cap array length and truncate each item string."""
+        return [str(item)[:max_str_len] for item in (items or [])[:max_items]]
+
+    def _finalize_json_block(self, label: str, output: dict) -> str:
+        """Serialize output dict to a JSON code block with safety truncation.
+
+        If the serialized JSON exceeds _MAX_JSON_CHARS, progressively shrinks it.
+        """
+        import json
+
+        raw = json.dumps(output, indent=2)
+
+        # If within budget, return as-is
+        if len(raw) <= self._MAX_JSON_CHARS:
+            return f"{label}\n\n```json\n{raw}\n```\n"
+
+        # Over budget: re-serialize without indent, then truncate
+        compact = json.dumps(output, separators=(",", ":"))
+        if len(compact) > self._MAX_JSON_CHARS:
+            compact = compact[:self._MAX_JSON_CHARS - 30] + '..."}'
+        return f"{label}\n\n```json\n{compact}\n```\n"
+
+    def _build_rich_message(self, agent_key: str, state: dict) -> str:
+        """Build a rich response with structured output data exchanged via Band.
+
+        This makes Band the actual collaboration layer — agents publish their
+        real output data in chat messages, not just status updates.
+        All strings and arrays are capped via _safe_str/_safe_list to prevent
+        payload overload in the Band shared environment.
+        """
+        _MAX = self._MAX_ARRAY_ITEMS
+
+        if agent_key == "explorer":
+            owner = self._safe_str(state.get("repository_owner", ""), 50)
+            name = self._safe_str(state.get("repository_name", ""), 50)
+            total = state.get("total_files", 0)
+            files = state.get("files", [])
+            # Cap file tree: max 10 files, paths truncated to 100 chars
+            file_tree = [
+                {"path": self._safe_str(f.get("path", ""), 100), "size": f.get("size", 0)}
+                for f in files[:10]
+            ]
+            output = {
+                "repository": f"{owner}/{name}",
+                "total_files": total,
+                "sample_files": file_tree,
+            }
+            label = f"📦 Repository: `{owner}/{name}` ({total} files mapped)"
+            return self._finalize_json_block(label, output)
+
+        elif agent_key == "documenter":
+            docs = state.get("architecture_docs", {})
+            # Cap: 5 files, summaries truncated to 150 chars
+            summaries = {
+                self._safe_str(path, 60): self._safe_str(summary, 150)
+                for path, summary in list(docs.items())[:5]
+            }
+            output = {"files_documented": len(docs), "summaries": summaries}
+            label = f"📚 Documented {len(docs)} files"
+            return self._finalize_json_block(label, output)
+
+        elif agent_key == "mentor":
+            guide = state.get("onboarding_guide", "")
+            output = {"guide_length": len(guide), "preview": self._safe_str(guide, 400)}
+            label = f"🧭 Onboarding guide generated ({len(guide)} chars)"
+            return self._finalize_json_block(label, output)
+
+        elif agent_key == "reviewer":
+            review = state.get("review", {})
+            score = state.get("quality_score", 0)
+            label_text = state.get("quality_score_label", "")
+            output = {
+                "score": score,
+                "label": label_text,
+                "strengths": self._safe_list(review.get("strengths", []), _MAX, 120),
+                "issues": self._safe_list(review.get("issues", []), _MAX, 120),
+                "recommendations": self._safe_list(review.get("recommendations", []), _MAX, 120),
+            }
+            label = f"🔍 Code quality: **{score}/100** ({label_text})"
+            return self._finalize_json_block(label, output)
+
+        elif agent_key == "task_suggester":
+            tasks = state.get("suggested_tasks", "")
+            output = {"tasks": self._safe_str(tasks, 400) if tasks else "No tasks generated"}
+            label = "📋 Tasks generated"
+            return self._finalize_json_block(label, output)
+
+        return ""
 
     @staticmethod
     def _build_data_summary(agent_key: str, state: dict) -> dict:
