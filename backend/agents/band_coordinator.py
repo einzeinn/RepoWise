@@ -76,6 +76,18 @@ class RepowiseNativeAdapter(SimpleAdapter):
         self.progress_queues = progress_queues
         # Track reviewer rejection retries per room
         self.review_retry_counts: Dict[str, int] = {}
+        # Resolve own handle for self-mention filtering
+        self._own_handle = None
+        for agent_info in AGENT_CHAIN:
+            if agent_info["label"].lower() == agent_name.lower():
+                self._own_handle = agent_info["handle"]
+                break
+
+    def _filter_self_mentions(self, mentions: list) -> list:
+        """Remove the agent's own handle from mentions to avoid cannot_mention_self."""
+        if not self._own_handle:
+            return mentions
+        return [m for m in mentions if m and m.lower() != self._own_handle.lower()]
 
     async def _push_progress(self, room_id: str, event: dict):
         """Push a progress event to the frontend queue for this room."""
@@ -142,7 +154,7 @@ class RepowiseNativeAdapter(SimpleAdapter):
                         "or no GitHub URL was detected.\n"
                         "Please resend the GitHub URL to restart the analysis pipeline."
                     ),
-                    mentions=[msg.sender_name],
+                    mentions=self._filter_self_mentions([msg.sender_name]),
                 )
                 return
 
@@ -242,7 +254,7 @@ class RepowiseNativeAdapter(SimpleAdapter):
                     "final_context_keys": list(current_state.keys()),
                 })
 
-            await tools.send_message(content=response_text, mentions=mentions)
+            await tools.send_message(content=response_text, mentions=self._filter_self_mentions(mentions))
             await tools.send_event(
                 content="Success" if status == "success" else "Failed",
                 message_type="tool_result",
@@ -256,7 +268,7 @@ class RepowiseNativeAdapter(SimpleAdapter):
             await tools.send_event(content=error_msg, message_type="error")
             await tools.send_message(
                 content=f"Sorry, I encountered a system error: {str(e)}",
-                mentions=[original_human],
+                mentions=self._filter_self_mentions([original_human]),
             )
             await self._push_progress(room_id, {
                 "type": "error",
