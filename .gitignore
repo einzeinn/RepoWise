@@ -66,3 +66,6 @@ htmlcov/
 # Band SDK local data (NOT agent source files)
 .band/
 agent_config.yaml
+
+# Session persistence (JSON files on disk)
+backend/sessions/
