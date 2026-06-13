@@ -30,13 +30,19 @@ async def lifespan(app: FastAPI):
     reviewer = ReviewerAgent()
     task_suggester = TaskSuggesterAgent()
 
-    await band_coordinator.start_remote_agents(
-        explorer,
-        documenter,
-        mentor,
-        reviewer,
-        task_suggester
-    )
+    # Band remote agents require stable WebSocket connections.
+    # Disable on Render free tier (set BAND_ENABLED=false) to avoid connection spam.
+    band_start = os.getenv("BAND_ENABLED", "true").lower() in ("true", "1", "yes")
+    if band_start:
+        await band_coordinator.start_remote_agents(
+            explorer,
+            documenter,
+            mentor,
+            reviewer,
+            task_suggester
+        )
+    else:
+        logging.info("[BAND] Remote agents skipped (BAND_ENABLED=false). Local mode active.")
     yield
 
 
