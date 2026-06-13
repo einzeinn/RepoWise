@@ -292,11 +292,17 @@ QWEN_API_KEY=your_qwen_key
 GROQ_API_KEY=your_groq_key
 
 # Band Agent IDs (required for multi-agent coordination via Band)
+# Set these on Render/Vercel Environment page. agent_config.yaml is gitignored.
 BAND_EXPLORER_ID=your_agent_id
+BAND_EXPLORER_KEY=your_agent_api_key
 BAND_DOCUMENTER_ID=your_agent_id
+BAND_DOCUMENTER_KEY=your_agent_api_key
 BAND_MENTOR_ID=your_agent_id
+BAND_MENTOR_KEY=your_agent_api_key
 BAND_REVIEWER_ID=your_agent_id
+BAND_REVIEWER_KEY=your_agent_api_key
 BAND_TASK_SUGGESTER_ID=your_agent_id
+BAND_TASK_SUGGESTER_KEY=your_agent_api_key
 ```
 
 > **No API keys?** The system gracefully falls back to hardcoded documentation!

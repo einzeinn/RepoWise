@@ -425,9 +425,10 @@ class BandCoordinator:
                 break
 
         if not config_path:
-            logging.warning("[BAND FALLBACK] agent_config.yaml not found.")
+            logging.warning("[BAND FALLBACK] agent_config.yaml not found. Trying env vars...")
+            self._load_config_from_env()
             return
-
+    
         # Load all agent configs
         import yaml
         try:
@@ -438,7 +439,7 @@ class BandCoordinator:
                     key = agent_key["key"]
                     if key in raw:
                         self.config[key] = raw[key]
-
+    
                 if len(self.config) >= 3:  # At least 3 agents configured
                     self.is_band_enabled = True
                     logging.info(
@@ -446,10 +447,43 @@ class BandCoordinator:
                     )
                 else:
                     logging.warning(
-                        f"[BAND FALLBACK] Only {len(self.config)} agents configured (need ≥3)."
+                        f"[BAND FALLBACK] Only {len(self.config)} agents configured (need \u22653)."
                     )
         except Exception as e:
             logging.error(f"[BAND FALLBACK] Failed to read config: {e}")
+    
+    def _load_config_from_env(self):
+        """Build Band config from environment variables when agent_config.yaml is missing.
+    
+        Expected env vars (per agent):
+            BAND_EXPLORER_ID,  BAND_EXPLORER_KEY
+            BAND_DOCUMENTER_ID, BAND_DOCUMENTER_KEY
+            BAND_MENTOR_ID,    BAND_MENTOR_KEY
+            BAND_REVIEWER_ID,  BAND_REVIEWER_KEY
+            BAND_TASK_SUGGESTER_ID, BAND_TASK_SUGGESTER_KEY
+        """
+        for agent_key in AGENT_CHAIN:
+            key = agent_key["key"]
+            env_prefix = f"BAND_{key.upper()}"
+            agent_id = os.getenv(f"{env_prefix}_ID", "")
+            api_key = os.getenv(f"{env_prefix}_KEY", "")
+    
+            if agent_id and api_key and "your_" not in agent_id and "your_" not in api_key:
+                self.config[key] = {
+                    "agent_id": agent_id,
+                    "api_key": api_key,
+                }
+    
+        if len(self.config) >= 3:
+            self.is_band_enabled = True
+            logging.info(
+                f"[BAND] Config loaded: {len(self.config)} agents from environment variables"
+            )
+        else:
+            logging.warning(
+                f"[BAND FALLBACK] Only {len(self.config)} agents configured from env vars (need \u22653). "
+                "Set BAND_<AGENT>_ID and BAND_<AGENT>_KEY env vars for each agent."
+            )
 
     async def start_remote_agents(
         self,
