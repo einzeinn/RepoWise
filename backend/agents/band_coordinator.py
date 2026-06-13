@@ -84,10 +84,30 @@ class RepowiseNativeAdapter(SimpleAdapter):
                 break
 
     def _filter_self_mentions(self, mentions: list) -> list:
-        """Remove the agent's own handle from mentions to avoid cannot_mention_self."""
+        """Remove the agent's own handle from mentions to avoid cannot_mention_self.
+        Also removes any mention that looks like an agent handle from AGENT_CHAIN."""
         if not self._own_handle:
             return mentions
-        return [m for m in mentions if m and m.lower() != self._own_handle.lower()]
+        agent_handles = {a["handle"].lower() for a in AGENT_CHAIN}
+        filtered = []
+        for m in mentions:
+            if not m:
+                continue
+            m_lower = m.lower()
+            # Skip self handle
+            if m_lower == self._own_handle.lower():
+                continue
+            # Skip any agent handle (they may cause cross-agent issues)
+            if m_lower in agent_handles:
+                continue
+            filtered.append(m)
+        return filtered
+
+    @staticmethod
+    def _strip_mentions_from_text(text: str) -> str:
+        """Remove @handle mentions from message content to prevent implicit self-mentions."""
+        # Match @user/handle patterns
+        return re.sub(r'@[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+', '', text).strip()
 
     async def _push_progress(self, room_id: str, event: dict):
         """Push a progress event to the frontend queue for this room."""
@@ -254,7 +274,11 @@ class RepowiseNativeAdapter(SimpleAdapter):
                     "final_context_keys": list(current_state.keys()),
                 })
 
-            await tools.send_message(content=response_text, mentions=self._filter_self_mentions(mentions))
+            # Strip @handles from content to prevent implicit self-mention detection
+            safe_text = self._strip_mentions_from_text(response_text)
+            filtered_mentions = self._filter_self_mentions(mentions)
+            logging.info(f"[BAND] {self.agent_name} sending: mentions={filtered_mentions}, own={self._own_handle}")
+            await tools.send_message(content=safe_text, mentions=filtered_mentions)
             await tools.send_event(
                 content="Success" if status == "success" else "Failed",
                 message_type="tool_result",
@@ -267,7 +291,7 @@ class RepowiseNativeAdapter(SimpleAdapter):
             original_human = current_state.get("original_sender", msg.sender_name)
             await tools.send_event(content=error_msg, message_type="error")
             await tools.send_message(
-                content=f"Sorry, I encountered a system error: {str(e)}",
+                content=self._strip_mentions_from_text(f"Sorry, I encountered a system error: {str(e)}"),
                 mentions=self._filter_self_mentions([original_human]),
             )
             await self._push_progress(room_id, {
