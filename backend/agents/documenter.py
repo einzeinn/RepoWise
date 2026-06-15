@@ -90,13 +90,25 @@ class DocumenterAgent(BaseAgent):
                 f"The feedback is additional context only — do not invent issues that are not in the code."
             )
 
-        # 1 LLM call for all files
-        raw_response = await self._call_llm(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            max_tokens=800,  # larger for multi-file
-            temperature=0.3,
-        )
+        # 1 LLM call for all files — with retry on connection error
+        MAX_RETRIES = 3
+        raw_response = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                raw_response = await self._call_llm(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    max_tokens=800,  # larger for multi-file
+                    temperature=0.3,
+                )
+                if raw_response:
+                    break
+            except Exception as e:
+                logging.warning(f"[{self.name}] LLM call attempt {attempt + 1} failed: {e}")
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(2 ** attempt)  # exponential backoff: 1s, 2s
+                else:
+                    logging.error(f"[{self.name}] All {MAX_RETRIES} LLM attempts failed")
 
         if not raw_response:
             return {}

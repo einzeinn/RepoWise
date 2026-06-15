@@ -69,7 +69,7 @@ app.add_middleware(
 mentor_qa = MentorQAHandler()
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     return {
         "message": "REPOWISE API is running",
@@ -84,7 +84,7 @@ async def root():
     }
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health_check():
     return {
         "status": "healthy",
