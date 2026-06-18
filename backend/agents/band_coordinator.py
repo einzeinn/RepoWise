@@ -15,12 +15,12 @@ from typing import Any, Dict, List, Optional, Callable, Awaitable
 from datetime import datetime
 
 try:
-    from thenvoi import Agent
-    from thenvoi.core.simple_adapter import SimpleAdapter
-    from thenvoi.core.protocols import AgentToolsProtocol
-    from thenvoi.core.types import PlatformMessage
-    from thenvoi.config import load_agent_config
-    from thenvoi.client.rest import (
+    from band import Agent
+    from band.core.simple_adapter import SimpleAdapter
+    from band.core.protocols import AgentToolsProtocol
+    from band.core.types import PlatformMessage
+    from band.config import load_agent_config
+    from band.client.rest import (
         AsyncRestClient,
         ChatMessageRequest,
         ChatMessageRequestMentionsItem,
@@ -37,7 +37,7 @@ except ImportError:
 
 
 # Production Band platform URL (SDK defaults to dev environment!)
-BAND_REST_URL = "https://app.thenvoi.com"
+BAND_REST_URL = "https://app.band.ai"
 
 # ─── Agent chain definition ───────────────────────────────────────────
 AGENT_CHAIN: List[Dict[str, str]] = [

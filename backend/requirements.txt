@@ -9,4 +9,4 @@ PyGithub>=2.1.1
 PyYAML>=6.0.1
 aiohttp>=3.9.1
 typing-extensions>=4.9.0
-band-sdk==0.2.11
+band-sdk>=1.0.0
