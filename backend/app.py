@@ -43,7 +43,13 @@ async def lifespan(app: FastAPI):
         )
     else:
         logging.info("[BAND] Remote agents skipped (BAND_ENABLED=false). Local mode active.")
+
     yield
+
+    # Shutdown: stop Band agents to release WebSocket sessions
+    if band_start and band_coordinator._agents_started:
+        logging.info("[BAND] Shutting down remote agents...")
+        band_coordinator.stop_agents()
 
 
 app = FastAPI(

@@ -511,6 +511,30 @@ class BandCoordinator:
                 "Set BAND_<AGENT>_ID and BAND_<AGENT>_KEY env vars for each agent."
             )
 
+    def stop_agents(self):
+        """Cancel all running Band agent tasks and reset state.
+        Call this before start_remote_agents() to ensure clean reconnection."""
+        if not self.active_tasks:
+            return
+
+        logging.info(f"[BAND] Stopping {len(self.active_tasks)} agent tasks...")
+        for task in self.active_tasks:
+            if not task.done():
+                task.cancel()
+
+        # Wait briefly for cancellation to propagate
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(asyncio.gather(*self.active_tasks, return_exceptions=True))
+        except RuntimeError:
+            pass
+
+        cancelled = len(self.active_tasks)
+        self.active_tasks = []
+        self._agents_started = False
+        logging.info(f"[BAND] {cancelled} agent tasks cancelled.")
+
     async def start_remote_agents(
         self,
         explorer_agent,
@@ -523,6 +547,13 @@ class BandCoordinator:
         if not self.is_band_enabled:
             logging.warning("[BAND] Skipping remote agent startup — Band not enabled.")
             return
+
+        # Guard: stop existing agents before reconnecting (prevents session.already_connected)
+        if self._agents_started or self.active_tasks:
+            logging.warning("[BAND] Agents already running — stopping before reconnect...")
+            self.stop_agents()
+            # Brief pause to allow Band server to release old session
+            await asyncio.sleep(1)
 
         local_agents = {
             "explorer": explorer_agent,
